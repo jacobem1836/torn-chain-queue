@@ -54,6 +54,11 @@ check("auto start: a war whose session was ended is not restarted", "s=idle&admi
 check("auto start: a session that is already live is left alone", "s=safe&admin=1&auto=1", (h) => !rpcs(h).includes("chain_auto_start"));
 check("auto start: old backend does nothing", "s=idle&admin=1&auto=1&legacy=1", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
 check("auto start: an admin sees the setting", "s=idle&open=1&admin=1", (h) => !/class="autoctl" hidden/.test(h) && /id="autostart"/.test(h));
+check("auto start: a chain past the threshold starts it (no war)", "s=idle&admin=1&tornchain=30", (h) => mock(h).session.active === true && mock(h).session.auto_started_key === "chain:5551");
+check("auto start: a chain below the threshold does not", "s=idle&admin=1&tornchain=20", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: threshold 0 turns the chain trigger off", "s=idle&admin=1&tornchain=30&autochain=0", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: a chain the session was already started for is not restarted", "s=idle&admin=1&tornchain=30&autodone=chain", (h) => mock(h).session.active === false);
+check("auto start: an admin can change the threshold", "s=safe&open=1&admin=1&fill=%23autochain:50&act=%23autostart", (h) => mock(h).session.auto_chain_min === 50);
 check("auto start: toggling saves the setting", "s=safe&open=1&admin=1&act=%23autostart", (h) => mock(h).session.auto_start === false && rpcs(h).includes("chain_set_auto_start"));
 check("auto start: non-admins do not see the setting", "s=idle&open=1", (h) => /class="autoctl" hidden/.test(h));
 

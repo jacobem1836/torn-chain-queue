@@ -114,41 +114,46 @@ grant execute on function public.chain_set_phase(text, bigint, text, text) to an
 -- Optional: in chain_set_active, clear phase_mode and phase_text when p_active is false, so the next session does not
 -- open with the last war's banner.
 
--- (3b+) Automatic session start in a ranked war --------------------------------------------------------------------
--- An idle admin client sees a live ranked war on Torn (GET /v2/faction/wars, wars.ranked with start <= now and no end)
--- and calls chain_auto_start. The single UPDATE below is the de-duplication: its where clause lets exactly one caller
--- through, so several admins' clients never start two sessions. It never restarts a session for a war it has already
--- started once, so an admin who ends the session during the war is not overridden. Starting goes through
--- chain_set_active, so any setup that function does still happens. Admins can switch the setting off per session.
+-- (3b+) Automatic session start in a ranked war, or when the chain passes a threshold ----------------------------------
+-- An idle admin client sees a live ranked war on Torn (GET /v2/faction/wars, wars.ranked with start <= now and no end), or
+-- a faction chain of at least auto_chain_min hits that is still running (GET /v2/faction?selections=chain), and calls
+-- chain_auto_start with a trigger key ("war:<war id>" or "chain:<chain start>"). The single UPDATE below is the
+-- de-duplication: its where clause lets exactly one caller through, so several admins' clients never start two sessions.
+-- It never restarts a session for a trigger it has already started once, so an admin who ends the session during the war
+-- or chain is not overridden. Starting goes through chain_set_active, so any setup that function does still happens.
+-- Admins can switch the setting off per session, and set the chain length (default 25, 0 turns the chain trigger off).
 
 alter table public.chain_sessions
-  add column if not exists auto_start            boolean not null default true,
-  add column if not exists auto_started_war_id   bigint;
+  add column if not exists auto_start         boolean not null default true,
+  add column if not exists auto_chain_min     integer not null default 25 check (auto_chain_min between 0 and 5000),
+  add column if not exists auto_started_key   text;
 
-create or replace function public.chain_auto_start(p_session text, p_player_id bigint, p_war_id bigint)
+create or replace function public.chain_auto_start(p_session text, p_player_id bigint, p_trigger text)
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
-  if not chain_is_admin(p_session, p_player_id) or p_war_id is null or p_war_id <= 0 then return false; end if;
+  if not chain_is_admin(p_session, p_player_id) or p_trigger !~ '^(war|chain):[0-9]{1,15}$' then return false; end if;
   update chain_sessions
-     set auto_started_war_id = p_war_id
+     set auto_started_key = p_trigger
    where session_id = p_session
      and not active
      and auto_start
-     and auto_started_war_id is distinct from p_war_id;
+     and auto_started_key is distinct from p_trigger;
   if not found then return false; end if;
   return coalesce(chain_set_active(p_session, p_player_id, true), false);
 end $$;
 
-create or replace function public.chain_set_auto_start(p_session text, p_player_id bigint, p_on boolean)
+create or replace function public.chain_set_auto_start(p_session text, p_player_id bigint, p_on boolean, p_chain_min integer)
 returns boolean language plpgsql security definer set search_path = public as $$
 begin
   if not chain_is_admin(p_session, p_player_id) then return false; end if;
-  update chain_sessions set auto_start = coalesce(p_on, true) where session_id = p_session;
+  update chain_sessions
+     set auto_start = coalesce(p_on, true), auto_chain_min = least(greatest(coalesce(p_chain_min, 25), 0), 5000)
+   where session_id = p_session;
   return found;
 end $$;
 
-grant execute on function public.chain_auto_start(text, bigint, bigint) to anon, authenticated;
-grant execute on function public.chain_set_auto_start(text, bigint, boolean) to anon, authenticated;
+grant execute on function public.chain_auto_start(text, bigint, text) to anon, authenticated;
+grant execute on function public.chain_set_auto_start(text, bigint, boolean, integer) to anon, authenticated;
 
 -- (3d+) Leaders' note on the phase banner -----------------------------------------------------------------------------
 -- Free text, 140 characters at most, admin-only, on chain_sessions so Realtime delivers it with the phase. The client only

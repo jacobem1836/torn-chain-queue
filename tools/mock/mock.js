@@ -2,6 +2,7 @@
 // so the userscript runs on a plain page with fixture data. Nothing here talks to a real server.
 // Query string: s=safe|warn|crit|idle, open=1 (open the panel), compact=1, feed=1 (TCM feed on), feedfail=1,
 // legacy=1 (backend without the proposed migration), admin=1 (viewer is a session admin), claim=1, phase=1,
+// tornchain=<n> (Torn reports a live faction chain of n),
 // auto=1 (a ranked war is live; also autooff=1 / autodone=1 for the setting off / this war already auto-started),
 // note=1 (a leaders' note is set; its text contains HTML to show it stays text),
 // round=1 (round mode, 10 hits a turn; the viewer is at the front with 4 hits done),
@@ -43,7 +44,7 @@
       leader_heartbeat_at: new Date().toISOString(), chain_count: scenario === "idle" ? 0 : 1842, chain_max: 2500,
       chain_end_at: scenario === "idle" ? 0 : end, chain_torn_timestamp: nowS() - 12, chain_cooldown_at: 0,
       ...(legacy ? {} : {
-        auto_start: !on("autooff"), auto_started_war_id: on("autodone") ? 777 : null,
+        auto_start: !on("autooff"), auto_chain_min: P.get("autochain") != null ? +P.get("autochain") : 25, auto_started_key: P.get("autodone") === "chain" ? "chain:5551" : on("autodone") ? "war:777" : null,
         leaders_note: on("note") ? "Dump ON after 22:00 TCT. <b>Do not</b> solo hit." : null,
         queue_mode: on("round") ? "round" : "normal", round_size: 10,
         phase_mode: on("phase") ? "termed" : null,
@@ -85,10 +86,10 @@
     },
     chain_auto_start: (b) => {
       const s = db.session;
-      if (!isAdmin(b.p_player_id) || s.active || !s.auto_start || s.auto_started_war_id === b.p_war_id) return false;
-      s.auto_started_war_id = b.p_war_id; s.active = true; return true;
+      if (!isAdmin(b.p_player_id) || s.active || !s.auto_start || s.auto_started_key === b.p_trigger) return false;
+      s.auto_started_key = b.p_trigger; s.active = true; return true;
     },
-    chain_set_auto_start: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.auto_start = b.p_on; return true; },
+    chain_set_auto_start: (b) => { if (!isAdmin(b.p_player_id)) return false; Object.assign(db.session, { auto_start: b.p_on, auto_chain_min: b.p_chain_min }); return true; },
     chain_set_note: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.leaders_note = b.p_text; return true; },
     chain_set_queue_mode: (b) => { if (!isAdmin(b.p_player_id)) return false; Object.assign(db.session, { queue_mode: b.p_mode, round_size: b.p_size }); return true; },
     chain_round_pass: (b) => {
@@ -110,7 +111,11 @@
       if (p === "/faction/wars") return { wars: { ranked: on("auto") ? { war_id: 777, start: nowS() - 600, end: 0 } : null } };
       if (p === "/user/faction") return { faction: { id: 41259 } };
       if (p === "/faction/timestamp") return { timestamp: nowS() };
-      if (p === "/faction") return { timestamp: nowS(), chain: { current: db.session.chain_count, max: 2500, end: db.session.chain_end_at, cooldown: 0 } };
+      if (p === "/faction") {
+        const tc = +P.get("tornchain");
+        if (tc && !db.session.active) return { timestamp: nowS(), chain: { current: tc, max: 100, end: nowS() + 200, start: 5551, cooldown: 0 } };
+        return { timestamp: nowS(), chain: { current: db.session.chain_count, max: 2500, end: db.session.chain_end_at, cooldown: 0 } };
+      }
       if (p === "/user/bars") return { bars: { energy: { current: 250, maximum: 150 } } };
       return { attacks: [] };
     }
