@@ -57,6 +57,17 @@ check("auto start: an admin sees the setting", "s=idle&open=1&admin=1", (h) => !
 check("auto start: toggling saves the setting", "s=safe&open=1&admin=1&act=%23autostart", (h) => mock(h).session.auto_start === false && rpcs(h).includes("chain_set_auto_start"));
 check("auto start: non-admins do not see the setting", "s=idle&open=1", (h) => /class="autoctl" hidden/.test(h));
 
+const ldnote = (h) => h.match(/<div class="ldnote"[^>]*>[^<]*<\/div>/)?.[0] || "";
+check("note: the banner shows the note as text, with the phase", "s=safe&phase=1&note=1", (h) => /TERMED · Terms hit[^<]* – 📝 Dump ON after 22:00 TCT\. &lt;b&gt;Do not&lt;\/b&gt; solo hit\./.test(bar(h)) && !/<b>Do not/.test(h));
+check("note: a note alone still shows a banner", "s=safe&note=1", (h) => /📝 Dump ON/.test(bar(h)) && !/data-mode/.test(bar(h)) && !/hidden/.test(bar(h)));
+check("note: the sheet shows it on its own line", "s=safe&open=1&note=1", (h) => !/class="ldnote" hidden/.test(h) && /📝 Dump ON after 22:00/.test(ldnote(h)));
+check("note: none set, nothing shown", "s=safe&open=1&phase=1", (h) => /class="ldnote" hidden/.test(h) && !/📝/.test(bar(h)));
+check("note: no banner while idle", "s=idle&note=1", (h) => !bar(h) || /hidden/.test(bar(h)));
+check("note: old backend shows no note and no control", "s=safe&open=1&legacy=1&note=1", (h) => !bar(h) && /class="row notectl" hidden/.test(h));
+check("note: an admin sets it", "s=safe&open=1&admin=1&fill=%23ldnote:Hold the chain&act=%23ldset", (h) => mock(h).session.leaders_note === "Hold the chain" && /📝 Hold the chain/.test(bar(h)));
+check("note: an admin's note is cut to 140 characters", "s=safe&open=1&admin=1&fill=%23ldnote:" + "x".repeat(200) + "&act=%23ldset", (h) => mock(h).session.leaders_note?.length === 140);
+check("note: non-admins get no note control", "s=safe&open=1&note=1", (h) => !/class="phasectl" style="display: block/.test(h));
+
 let failed = 0;
 for (const c of cases) {
   let ok = false;

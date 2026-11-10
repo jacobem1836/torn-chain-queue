@@ -3,6 +3,7 @@
 // Query string: s=safe|warn|crit|idle, open=1 (open the panel), compact=1, feed=1 (TCM feed on), feedfail=1,
 // legacy=1 (backend without the proposed migration), admin=1 (viewer is a session admin), claim=1, phase=1,
 // auto=1 (a ranked war is live; also autooff=1 / autodone=1 for the setting off / this war already auto-started),
+// note=1 (a leaders' note is set; its text contains HTML to show it stays text),
 // lead=1 (viewer is the chain leader), expand=<selectors> (open those <details>).
 (() => {
   const P = new URLSearchParams(location.search);
@@ -42,6 +43,7 @@
       chain_end_at: scenario === "idle" ? 0 : end, chain_torn_timestamp: nowS() - 12, chain_cooldown_at: 0,
       ...(legacy ? {} : {
         auto_start: !on("autooff"), auto_started_war_id: on("autodone") ? 777 : null,
+        leaders_note: on("note") ? "Dump ON after 22:00 TCT. <b>Do not</b> solo hit." : null,
         phase_mode: on("phase") ? "termed" : null,
         phase_text: on("phase") ? "Terms hit. Buddy rounds of 10, no solo hits." : null,
         phase_set_by: on("phase") ? "NovaStrike" : null,
@@ -84,6 +86,7 @@
       s.auto_started_war_id = b.p_war_id; s.active = true; return true;
     },
     chain_set_auto_start: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.auto_start = b.p_on; return true; },
+    chain_set_note: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.leaders_note = b.p_text; return true; },
     chain_set_active: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.active = b.p_active; return true; },
     chain_admin_add: (b) => { if (!isAdmin(b.p_player_id)) return false; db.admins.push({ session_id: "sot-41259", player_id: b.p_admin_id, player_name: b.p_admin_name, role: b.p_role }); return true; },
     chain_admin_remove: (b) => { if (!isAdmin(b.p_player_id)) return false; db.admins = db.admins.filter((a) => a.player_id !== b.p_admin_id); return true; },

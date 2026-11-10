@@ -149,3 +149,26 @@ end $$;
 
 grant execute on function public.chain_auto_start(text, bigint, bigint) to anon, authenticated;
 grant execute on function public.chain_set_auto_start(text, bigint, boolean) to anon, authenticated;
+
+-- (3d+) Leaders' note on the phase banner -----------------------------------------------------------------------------
+-- Free text, 140 characters at most, admin-only, on chain_sessions so Realtime delivers it with the phase. The client only
+-- ever renders it as text. Control characters are replaced by spaces here as well.
+
+alter table public.chain_sessions
+  add column if not exists leaders_note    text check (char_length(leaders_note) <= 140),
+  add column if not exists leaders_note_by bigint,
+  add column if not exists leaders_note_at timestamptz;
+
+create or replace function public.chain_set_note(p_session text, p_player_id bigint, p_text text)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) then return false; end if;
+  update chain_sessions
+     set leaders_note    = nullif(left(trim(regexp_replace(coalesce(p_text, ''), '[[:cntrl:]]', ' ', 'g')), 140), ''),
+         leaders_note_by = p_player_id,
+         leaders_note_at = now()
+   where session_id = p_session;
+  return found;
+end $$;
+grant execute on function public.chain_set_note(text, bigint, text) to anon, authenticated;
+-- Optional: clear leaders_note in chain_set_active when p_active is false, like phase_*.
