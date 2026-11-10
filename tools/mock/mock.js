@@ -17,6 +17,8 @@
   const leaderName = on("lead") ? ME.name : "NovaStrike";
 
   window.getCurrentTimestamp = () => Date.now();
+  // Web Locks never grant in headless virtual time; hiding them makes the script use its localStorage poll lease.
+  try { Object.defineProperty(navigator, "locks", { value: undefined }); } catch (e) {}
   window.GM_getValue = (k) => store[k];
   window.GM_setValue = (k, v) => { store[k] = v; };
   window.GM_addValueChangeListener = () => {};
