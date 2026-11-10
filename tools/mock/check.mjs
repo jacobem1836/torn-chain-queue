@@ -36,6 +36,13 @@ check("claim: GOT IT button shows when critical", "s=crit&open=1", (h) => !/clas
 check("claim: one tap claims it for everyone", "s=crit&open=1&act=%23claim", (h) => mock(h).session.save_claim_name === "Yeeeeeeeeeeeeee" && /You have the save/.test(claimBox(h)));
 check("claim: someone else's claim shows with a countdown", "s=crit&open=1&claim=1", (h) => /Kestrel_9 has it · \d+s/.test(claimBox(h)) && /<button id="claim" hidden/.test(claimBox(h)));
 check("claim: old backend hides it", "s=crit&open=1&legacy=1", (h) => /class="claim" hidden/.test(h));
+const bar = (h) => h.match(/<div id="cqbar"[^>]*>[^<]*<\/div>/)?.[0] || "";
+check("phase: banner shows mode and phase on the page", "s=safe&phase=1", (h) => /data-mode="termed"/.test(bar(h)) && /TERMED · Terms hit/.test(bar(h)) && !/hidden/.test(bar(h)));
+check("phase: tapping the banner hides it", "s=safe&phase=1&act=%23cqbar", (h) => /hidden/.test(bar(h)));
+check("phase: no banner while idle", "s=idle&phase=1", (h) => !bar(h) || /hidden/.test(bar(h)));
+check("phase: old backend shows no banner", "s=safe&legacy=1", (h) => !bar(h));
+check("phase: an admin sets the banner", "s=safe&open=1&admin=1&fill=%23phmode:real,%23phtext:Opening push&act=%23phset", (h) => mock(h).session.phase_mode === "real" && /REAL FIGHT · Opening push/.test(bar(h)));
+check("phase: non-admins get no phase controls", "s=safe&open=1", (h) => !/class="phasectl" style="display: block/.test(h));
 
 let failed = 0;
 for (const c of cases) {
