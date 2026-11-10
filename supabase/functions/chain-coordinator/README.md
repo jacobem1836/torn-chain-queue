@@ -33,3 +33,7 @@ The existing Torn API key is submitted to the `verify` action via HTTPS. The fun
 
 ## Admins (this branch)
 `set_active` accepts the owner (`CHAIN_OWNER_TORN_ID`) or anyone for whom `chain_is_admin(session, id)` is true. That function comes from `design/tcm-upgrade.proposed.sql`; until it exists only the owner passes (non-owner calls fail with 502). `chain_set_active` must also use `chain_is_admin` inside the database.
+
+## New actions to add to the gateway (not yet routed)
+Like `chain_admin_add`, `chain_set_phase`, and `chain_claim_save`, the client still calls these directly until the client moves to the gateway. When it does, add gateway actions that pass the verified id as `p_player_id` and include them in the cutover that revokes the public grants:
+- `chain_auto_start(session, verified id, war id)` and `chain_set_auto_start(session, verified id, on)`. Admin only, checked inside the functions through `chain_is_admin`. `chain_auto_start` is one atomic update, so concurrent admins cannot start two sessions, and it only ever starts the session, never ends it. The client calls it from an idle admin client at most once every 4 minutes across tabs (the Torn read of `/faction/wars` is done by the client with the member's own key; it does not use the poll lease because no session is live to lease).

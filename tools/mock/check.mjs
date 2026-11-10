@@ -45,6 +45,18 @@ check("phase: old backend shows no banner", "s=safe&legacy=1", (h) => !bar(h));
 check("phase: an admin sets the banner", "s=safe&open=1&admin=1&fill=%23phmode:real,%23phtext:Opening push&act=%23phset", (h) => mock(h).session.phase_mode === "real" && /REAL FIGHT · Opening push/.test(bar(h)));
 check("phase: non-admins get no phase controls", "s=safe&open=1", (h) => !/class="phasectl" style="display: block/.test(h));
 
+const rpcs = (h) => mock(h).rpcs;
+check("auto start: an admin's idle client starts the session in a live ranked war", "s=idle&admin=1&auto=1", (h) => mock(h).session.active === true && rpcs(h).includes("chain_auto_start"));
+check("auto start: the owner-or-admin check keeps non-admins out", "s=idle&auto=1", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: no war, no start", "s=idle&admin=1", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: off setting is respected", "s=idle&admin=1&auto=1&autooff=1", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: a war whose session was ended is not restarted", "s=idle&admin=1&auto=1&autodone=1", (h) => mock(h).session.active === false);
+check("auto start: a session that is already live is left alone", "s=safe&admin=1&auto=1", (h) => !rpcs(h).includes("chain_auto_start"));
+check("auto start: old backend does nothing", "s=idle&admin=1&auto=1&legacy=1", (h) => mock(h).session.active === false && !rpcs(h).includes("chain_auto_start"));
+check("auto start: an admin sees the setting", "s=idle&open=1&admin=1", (h) => !/class="autoctl" hidden/.test(h) && /id="autostart"/.test(h));
+check("auto start: toggling saves the setting", "s=safe&open=1&admin=1&act=%23autostart", (h) => mock(h).session.auto_start === false && rpcs(h).includes("chain_set_auto_start"));
+check("auto start: non-admins do not see the setting", "s=idle&open=1", (h) => /class="autoctl" hidden/.test(h));
+
 let failed = 0;
 for (const c of cases) {
   let ok = false;

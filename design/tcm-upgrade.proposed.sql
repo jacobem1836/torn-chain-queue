@@ -113,3 +113,39 @@ grant execute on function public.chain_set_phase(text, bigint, text, text) to an
 
 -- Optional: in chain_set_active, clear phase_mode and phase_text when p_active is false, so the next session does not
 -- open with the last war's banner.
+
+-- (3b+) Automatic session start in a ranked war --------------------------------------------------------------------
+-- An idle admin client sees a live ranked war on Torn (GET /v2/faction/wars, wars.ranked with start <= now and no end)
+-- and calls chain_auto_start. The single UPDATE below is the de-duplication: its where clause lets exactly one caller
+-- through, so several admins' clients never start two sessions. It never restarts a session for a war it has already
+-- started once, so an admin who ends the session during the war is not overridden. Starting goes through
+-- chain_set_active, so any setup that function does still happens. Admins can switch the setting off per session.
+
+alter table public.chain_sessions
+  add column if not exists auto_start            boolean not null default true,
+  add column if not exists auto_started_war_id   bigint;
+
+create or replace function public.chain_auto_start(p_session text, p_player_id bigint, p_war_id bigint)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) or p_war_id is null or p_war_id <= 0 then return false; end if;
+  update chain_sessions
+     set auto_started_war_id = p_war_id
+   where session_id = p_session
+     and not active
+     and auto_start
+     and auto_started_war_id is distinct from p_war_id;
+  if not found then return false; end if;
+  return coalesce(chain_set_active(p_session, p_player_id, true), false);
+end $$;
+
+create or replace function public.chain_set_auto_start(p_session text, p_player_id bigint, p_on boolean)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) then return false; end if;
+  update chain_sessions set auto_start = coalesce(p_on, true) where session_id = p_session;
+  return found;
+end $$;
+
+grant execute on function public.chain_auto_start(text, bigint, bigint) to anon, authenticated;
+grant execute on function public.chain_set_auto_start(text, bigint, boolean) to anon, authenticated;
