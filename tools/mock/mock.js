@@ -24,7 +24,8 @@
   window.alert = () => {};
   localStorage.clear();
   store["chainQueue.tornApiKey"] = "MOCKKEY000000000";
-  if (on("feed")) { store["chainQueue.tcmFeed"] = "1"; store["chainQueue.tcmToken"] = "mock-token"; }
+  if (on("feed")) { store["chainQueue.tcmFeed"] = "1"; store["chainQueue.tcmToken"] = on("badtoken") ? "revoked" : "mock-token"; }
+  window.__mockStore = store;
   // Realtime is not mocked: the script falls back to its 30 s reload.
   window.WebSocket = function () { const s = { readyState: 3, send() {}, close() {} }; setTimeout(() => s.onclose?.(), 0); return s; };
 
@@ -57,6 +58,11 @@
   const isAdmin = (id) => db.admins.some((a) => a.player_id === id);
   const rpc = {
     chain_open_faction: () => "sot-41259",
+    chain_apply_snapshot: (b) => {
+      if (b.p_torn_timestamp < db.session.chain_torn_timestamp) return false;
+      Object.assign(db.session, { chain_torn_timestamp: b.p_torn_timestamp, chain_count: b.p_current, chain_max: b.p_max, chain_end_at: b.p_end });
+      return true;
+    },
     chain_claim_save: (b) => {
       const s = db.session;
       if (s.save_claim_until && Date.parse(s.save_claim_until) > Date.now()) return false;
@@ -91,8 +97,9 @@
       if (u.pathname === "/api/chain/feed") {
         if (on("feedfail")) return { __status: 503, error: "unavailable" };
         if (headers?.["x-tcm-token"] !== "mock-token") return { __status: 401, error: "relink" };
-        const s = db.session;
-        return { now: Date.now() / 1000, chain: s.chain_count ? { current: s.chain_count + 1, max: 2500, end: s.chain_end_at + 9, cooldown: 0, start: 1 } : null, cooldown: 0, updated: nowS() - 3, age: 3, keys: 8 };
+        // One hit newer than the leader's last Torn read: count + 1 and 9 s more on the timer.
+        const age = on("feedstale") ? 90 : 3;
+        return { now: Date.now() / 1000, chain: scenario !== "idle" ? { current: 1843, max: 2500, end: end + 9, cooldown: 0, start: 1 } : null, cooldown: 0, updated: nowS() - age, age, keys: 8 };
       }
     }
     const rest = u.pathname.replace("/rest/v1/", "");
@@ -117,6 +124,12 @@
     }, 20);
   };
   window.__mockDb = db;
+  // For check.sh: mirror the fake backend's state into the DOM so --dump-dom can see it.
+  setInterval(() => {
+    if (!document.body) return;
+    const { calls, ...rest } = db;
+    document.body.dataset.mock = JSON.stringify({ ...rest, store, rpcs: calls.filter((c) => c.includes("/rpc/")).map((c) => c.split("/rpc/")[1]) });
+  }, 200);
 
   if (on("open")) {
     const t = setInterval(() => {
