@@ -141,4 +141,13 @@
       for (const sel of (P.get("expand") || "").split(",").filter(Boolean)) document.querySelector("#cq " + sel)?.setAttribute("open", "");
     }, 50);
   }
+  // fill=<selector>:<value>,... then act=<selector>,... clicked 400 ms apart, starting 1.5 s after load.
+  setTimeout(() => {
+    for (const f of (P.get("fill") || "").split(",").filter(Boolean)) {
+      const [sel, val] = f.split(":");
+      const el = document.querySelector(sel);
+      if (el) el.value = val;
+    }
+    (P.get("act") || "").split(",").filter(Boolean).forEach((sel, i) => setTimeout(() => document.querySelector(sel)?.click(), i * 400));
+  }, 1500);
 })();

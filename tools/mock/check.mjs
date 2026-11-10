@@ -24,6 +24,13 @@ check("feed stale (snapshot 90 s old): falls back to Torn", "s=safe&open=1&feed=
 check("feed token revoked: turns the feed off and says so", "s=safe&open=1&feed=1&badtoken=1", (h) => /^via Torn/.test(text(h, "src") || "") && /relink/.test(text(h, "msg") || "") && mock(h).store["chainQueue.tcmFeed"] === "0");
 check("feed on, not leader: never writes snapshots", "s=safe&open=1&feed=1", (h) => !mock(h).rpcs.includes("chain_apply_snapshot"));
 
+const shown = (h, cls) => new RegExp(`class="${cls}"[^>]*style="display: (block|flex)`).test(h);
+check("admins: non-admin sees no session controls", "s=idle&open=1", (h) => !shown(h, "sessionCtl") && !shown(h, "admins"));
+check("admins: an admin sees start/end and the admin list", "s=idle&open=1&admin=1", (h) => shown(h, "sessionCtl") && shown(h, "admins") && /NovaStrike/.test(h.match(/class="admlist"[\s\S]*?<\/ul>/)?.[0] || ""));
+check("admins: an admin can start a session", "s=idle&open=1&admin=1&act=%23startsession", (h) => mock(h).session.active === true && mock(h).rpcs.includes("chain_set_active"));
+check("admins: an admin can add a watcher", "s=idle&open=1&admin=1&fill=%23admid:3009999&act=%23admadd", (h) => mock(h).admins.some((a) => a.player_id === 3009999 && a.role === "watcher"));
+check("admins: old backend hides the admin list", "s=idle&open=1&legacy=1", (h) => !shown(h, "admins") && !shown(h, "sessionCtl"));
+
 let failed = 0;
 for (const c of cases) {
   let ok = false;
