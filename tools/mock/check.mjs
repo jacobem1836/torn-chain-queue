@@ -35,6 +35,7 @@ check("claim: hidden while the timer is safe", "s=safe&open=1", (h) => /class="c
 check("claim: GOT IT button shows when critical", "s=crit&open=1", (h) => !/class="claim" hidden/.test(h) && /<button id="claim">/.test(claimBox(h)));
 check("claim: one tap claims it for everyone", "s=crit&open=1&act=%23claim", (h) => mock(h).session.save_claim_name === "Yeeeeeeeeeeeeee" && /You have the save/.test(claimBox(h)));
 check("claim: someone else's claim shows with a countdown", "s=crit&open=1&claim=1", (h) => /Kestrel_9 has it · \d+s/.test(claimBox(h)) && /<button id="claim" hidden/.test(claimBox(h)));
+check("claim: the copy says to claim before hitting", "s=crit&open=1", (h) => /<button id="claim">✋ Got it – I'm hitting<\/button>/.test(claimBox(h)) && /BEFORE you hit/.test(claimBox(h)));
 check("claim: old backend hides it", "s=crit&open=1&legacy=1", (h) => /class="claim" hidden/.test(h));
 const bar = (h) => h.match(/<div id="cqbar"[^>]*>[^<]*<\/div>/)?.[0] || "";
 check("phase: banner shows mode and phase on the page", "s=safe&phase=1", (h) => /data-mode="termed"/.test(bar(h)) && /TERMED · Terms hit/.test(bar(h)) && !/hidden/.test(bar(h)));
