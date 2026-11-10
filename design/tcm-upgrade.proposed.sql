@@ -59,3 +59,26 @@ grant execute on function public.chain_admin_remove(text, bigint, bigint) to ano
 -- And in the existing chain_set_active(p_session, p_player_id, p_active): replace the owner equality check with
 --   if not chain_is_admin(p_session, p_player_id) then return false; end if;
 -- (On the v036 gateway, set_active's CHAIN_OWNER_TORN_ID check would call chain_is_admin the same way.)
+
+-- (c) "Got it" save claim -----------------------------------------------------------------------------------------
+-- Lives on chain_sessions so the existing Realtime UPDATE subscription delivers it to every client instantly.
+-- First claim wins until it expires; the where clause makes that atomic.
+
+alter table public.chain_sessions
+  add column if not exists save_claim_player_id bigint,
+  add column if not exists save_claim_name      text,
+  add column if not exists save_claim_until     timestamptz;
+
+create or replace function public.chain_claim_save(p_session text, p_player_id bigint, p_player_name text, p_seconds integer)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  update chain_sessions
+     set save_claim_player_id = p_player_id,
+         save_claim_name      = left(p_player_name, 40),
+         save_claim_until     = now() + make_interval(secs => least(greatest(coalesce(p_seconds, 60), 15), 120))
+   where session_id = p_session
+     and active
+     and (save_claim_until is null or save_claim_until < now());
+  return found;
+end $$;
+grant execute on function public.chain_claim_save(text, bigint, text, integer) to anon, authenticated;

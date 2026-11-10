@@ -30,6 +30,12 @@ check("admins: an admin sees start/end and the admin list", "s=idle&open=1&admin
 check("admins: an admin can start a session", "s=idle&open=1&admin=1&act=%23startsession", (h) => mock(h).session.active === true && mock(h).rpcs.includes("chain_set_active"));
 check("admins: an admin can add a watcher", "s=idle&open=1&admin=1&fill=%23admid:3009999&act=%23admadd", (h) => mock(h).admins.some((a) => a.player_id === 3009999 && a.role === "watcher"));
 check("admins: old backend hides the admin list", "s=idle&open=1&legacy=1", (h) => !shown(h, "admins") && !shown(h, "sessionCtl"));
+const claimBox = (h) => h.match(/<div class="claim"[\s\S]*?<\/div><\/div>/)?.[0] || "";
+check("claim: hidden while the timer is safe", "s=safe&open=1", (h) => /class="claim" hidden/.test(h));
+check("claim: GOT IT button shows when critical", "s=crit&open=1", (h) => !/class="claim" hidden/.test(h) && /<button id="claim">/.test(claimBox(h)));
+check("claim: one tap claims it for everyone", "s=crit&open=1&act=%23claim", (h) => mock(h).session.save_claim_name === "Yeeeeeeeeeeeeee" && /You have the save/.test(claimBox(h)));
+check("claim: someone else's claim shows with a countdown", "s=crit&open=1&claim=1", (h) => /Kestrel_9 has it · \d+s/.test(claimBox(h)) && /<button id="claim" hidden/.test(claimBox(h)));
+check("claim: old backend hides it", "s=crit&open=1&legacy=1", (h) => /class="claim" hidden/.test(h));
 
 let failed = 0;
 for (const c of cases) {
