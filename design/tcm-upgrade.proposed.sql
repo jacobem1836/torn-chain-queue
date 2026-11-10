@@ -1,0 +1,61 @@
+-- PROPOSED, NOT APPLIED. For Cloudy to review and apply to the Chain Manager database.
+-- Written against the live schema as seen from the client (select=* on chain_sessions and chain_queue); the bodies of
+-- the existing chain_* functions were not read, so check names and types before running.
+--
+-- Security model: these follow the current public RPC model, where the caller supplies its own player id. That is
+-- spoofable, like chain_set_active's owner check today (see design/live-supabase-security-audit-2026-11-09.md on the
+-- v036 branch). When the identity-bound gateway lands, route chain_admin_add, chain_admin_remove, chain_set_phase, and
+-- chain_claim_save through it with the verified id, the same as join and take_lead.
+--
+-- The client feature-detects all of this: without the table it hides the admin list, and without the new
+-- chain_sessions columns it hides the save claim and the phase banner. Applying it before the client ships is safe.
+
+-- (b) Session admins ---------------------------------------------------------------------------------------------
+
+create table if not exists public.chain_session_admins (
+  session_id  text        not null,
+  player_id   bigint      not null,
+  player_name text        not null check (char_length(player_name) between 1 and 40),
+  role        text        not null check (role in ('leader', 'officer', 'watcher')),
+  added_by    bigint      not null,
+  added_at    timestamptz not null default now(),
+  primary key (session_id, player_id)
+);
+alter table public.chain_session_admins enable row level security;
+create policy "public admin list read" on public.chain_session_admins for select using (true);
+-- No write policies: writes go through the functions below only.
+
+-- Cloudy (4315564) is always an admin, matching the existing owner check.
+create or replace function public.chain_is_admin(p_session text, p_player_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select p_player_id = 4315564
+      or exists (select 1 from chain_session_admins where session_id = p_session and player_id = p_player_id)
+$$;
+revoke execute on function public.chain_is_admin(text, bigint) from public, anon, authenticated;
+
+create or replace function public.chain_admin_add(p_session text, p_player_id bigint, p_admin_id bigint, p_admin_name text, p_role text)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) then return false; end if;
+  if p_role not in ('leader', 'officer', 'watcher') or p_admin_id <= 0 then return false; end if;
+  if (select count(*) from chain_session_admins where session_id = p_session) >= 30 then return false; end if;
+  insert into chain_session_admins (session_id, player_id, player_name, role, added_by)
+  values (p_session, p_admin_id, left(p_admin_name, 40), p_role, p_player_id)
+  on conflict (session_id, player_id) do update set player_name = excluded.player_name, role = excluded.role;
+  return true;
+end $$;
+
+create or replace function public.chain_admin_remove(p_session text, p_player_id bigint, p_admin_id bigint)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) or p_admin_id = 4315564 then return false; end if;
+  delete from chain_session_admins where session_id = p_session and player_id = p_admin_id;
+  return found;
+end $$;
+
+grant execute on function public.chain_admin_add(text, bigint, bigint, text, text) to anon, authenticated;
+grant execute on function public.chain_admin_remove(text, bigint, bigint) to anon, authenticated;
+
+-- And in the existing chain_set_active(p_session, p_player_id, p_active): replace the owner equality check with
+--   if not chain_is_admin(p_session, p_player_id) then return false; end if;
+-- (On the v036 gateway, set_active's CHAIN_OWNER_TORN_ID check would call chain_is_admin the same way.)
