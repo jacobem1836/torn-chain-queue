@@ -30,3 +30,6 @@ The existing Torn API key is submitted to the `verify` action via HTTPS. The fun
 - Tampered credential; wrong signature; expired credential; expired lease token.
 - Simultaneous claimers (one winner), renewal, takeover, and stale writer rejection.
 - Verify API keys never appear in logs, database rows, telemetry, or URLs.
+
+## Admins (this branch)
+`set_active` accepts the owner (`CHAIN_OWNER_TORN_ID`) or anyone for whom `chain_is_admin(session, id)` is true. That function comes from `design/tcm-upgrade.proposed.sql`; until it exists only the owner passes (non-owner calls fail with 502). `chain_set_active` must also use `chain_is_admin` inside the database.

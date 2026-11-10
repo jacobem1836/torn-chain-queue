@@ -135,7 +135,9 @@ Deno.serve(async req=>{
          if(!safeName(body.player_name))return json({error:"Invalid name"},400);
          fn="chain_join_v2";args={...args,p_player_id:ownId,p_player_name:body.player_name,p_can_lead:body.can_lead===true};break;
        case "set_active":
-         if(Number(Deno.env.get("CHAIN_OWNER_TORN_ID"))!==ownId||typeof body.active!=="boolean")return json({error:"Owner authorization required"},403);
+         if(typeof body.active!=="boolean")return json({error:"Invalid active flag"},400);
+         // The owner is always an admin; anyone else must be listed in chain_session_admins (see design/tcm-upgrade.proposed.sql).
+         if(Number(Deno.env.get("CHAIN_OWNER_TORN_ID"))!==ownId&&await dbRpc("chain_is_admin",{p_session:claims.session,p_player_id:ownId},url,serviceKey)!==true)return json({error:"Admin authorization required"},403);
          fn="chain_set_active";args={...args,p_player_id:ownId,p_active:body.active};break;
        case "take_lead":fn="chain_take_lead";args={...args,p_player_id:ownId};break;
        case "claim_stale_lead":fn="chain_claim_stale_lead";args={...args,p_player_id:ownId};break;
