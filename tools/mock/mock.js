@@ -4,6 +4,7 @@
 // legacy=1 (backend without the proposed migration), admin=1 (viewer is a session admin), claim=1, phase=1,
 // auto=1 (a ranked war is live; also autooff=1 / autodone=1 for the setting off / this war already auto-started),
 // note=1 (a leaders' note is set; its text contains HTML to show it stays text),
+// round=1 (round mode, 10 hits a turn; the viewer is at the front with 4 hits done),
 // lead=1 (viewer is the chain leader), expand=<selectors> (open those <details>).
 (() => {
   const P = new URLSearchParams(location.search);
@@ -44,6 +45,7 @@
       ...(legacy ? {} : {
         auto_start: !on("autooff"), auto_started_war_id: on("autodone") ? 777 : null,
         leaders_note: on("note") ? "Dump ON after 22:00 TCT. <b>Do not</b> solo hit." : null,
+        queue_mode: on("round") ? "round" : "normal", round_size: 10,
         phase_mode: on("phase") ? "termed" : null,
         phase_text: on("phase") ? "Terms hit. Buddy rounds of 10, no solo hits." : null,
         phase_set_by: on("phase") ? "NovaStrike" : null,
@@ -51,9 +53,10 @@
         save_claim_until: claim ? new Date(Date.now() + 45000).toISOString() : null,
       }),
     },
-    queue: scenario === "idle" ? [] : names.map((n, i) => ({
+    queue: scenario === "idle" ? [] : (on("round") ? [ME.name, ...names.filter((n) => n !== ME.name)] : names).map((n, i) => ({
       session_id: "sot-41259", player_id: idOf(n, i), player_name: n, position: i + 1,
       energy_current: [150, 75, 250, 1000, 25, null, 100][i], energy_max: 150, can_lead: true,
+      ...(legacy ? {} : { round_hits: on("round") && n === ME.name ? 4 : 0 }),
     })),
     admins: [{ session_id: "sot-41259", player_id: 3001001, player_name: "NovaStrike", role: "leader" },
       { session_id: "sot-41259", player_id: 3001002, player_name: "PaperTiger", role: "officer" },
@@ -87,6 +90,11 @@
     },
     chain_set_auto_start: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.auto_start = b.p_on; return true; },
     chain_set_note: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.leaders_note = b.p_text; return true; },
+    chain_set_queue_mode: (b) => { if (!isAdmin(b.p_player_id)) return false; Object.assign(db.session, { queue_mode: b.p_mode, round_size: b.p_size }); return true; },
+    chain_round_pass: (b) => {
+      if (db.queue[0]?.player_id !== b.p_player_id) return false;
+      const f = db.queue.shift(); f.round_hits = 0; db.queue.push(f); db.queue.forEach((r, i) => { r.position = i + 1; }); return true;
+    },
     chain_set_active: (b) => { if (!isAdmin(b.p_player_id)) return false; db.session.active = b.p_active; return true; },
     chain_admin_add: (b) => { if (!isAdmin(b.p_player_id)) return false; db.admins.push({ session_id: "sot-41259", player_id: b.p_admin_id, player_name: b.p_admin_name, role: b.p_role }); return true; },
     chain_admin_remove: (b) => { if (!isAdmin(b.p_player_id)) return false; db.admins = db.admins.filter((a) => a.player_id !== b.p_admin_id); return true; },

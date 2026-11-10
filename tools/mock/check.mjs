@@ -68,6 +68,16 @@ check("note: an admin sets it", "s=safe&open=1&admin=1&fill=%23ldnote:Hold the c
 check("note: an admin's note is cut to 140 characters", "s=safe&open=1&admin=1&fill=%23ldnote:" + "x".repeat(200) + "&act=%23ldset", (h) => mock(h).session.leaders_note?.length === 140);
 check("note: non-admins get no note control", "s=safe&open=1&note=1", (h) => !/class="phasectl" style="display: block/.test(h));
 
+const roundLine = (h) => h.match(/<div class="round"[^>]*>[^<]*<\/div>/)?.[0] || "";
+check("round: shows your round k/N when it is your turn", "s=safe&open=1&round=1", (h) => !/class="round" hidden/.test(h) && /Your round: 4\/10/.test(roundLine(h)) && /round 4\/10/.test(h));
+check("round: the pass button shows for the player at the front", "s=safe&open=1&round=1", (h) => !/id="roundpass" hidden/.test(h));
+check("round: normal mode shows no round line or pass button", "s=safe&open=1", (h) => /class="round" hidden/.test(h) && /id="roundpass" hidden/.test(h));
+check("round: passing sends you to the back and clears your count", "s=safe&open=1&round=1&act=%23roundpass", (h) => mock(h).queue.at(-1).player_name === "Yeeeeeeeeeeeeee" && mock(h).queue.at(-1).round_hits === 0);
+check("round: an admin switches the mode and size", "s=safe&open=1&admin=1&fill=%23qmode:round,%23qsize:6&act=%23qset", (h) => mock(h).session.queue_mode === "round" && mock(h).session.round_size === 6);
+check("round: size is held between 1 and 25", "s=safe&open=1&admin=1&fill=%23qmode:round,%23qsize:99&act=%23qset", (h) => mock(h).session.round_size === 25);
+check("round: non-admins get no mode control", "s=safe&open=1&round=1", (h) => /class="row roundctl" hidden/.test(h));
+check("round: old backend hides it all", "s=safe&open=1&legacy=1&round=1", (h) => /class="round" hidden/.test(h) && /class="row roundctl" hidden/.test(h));
+
 let failed = 0;
 for (const c of cases) {
   let ok = false;

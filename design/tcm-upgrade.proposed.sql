@@ -172,3 +172,65 @@ begin
 end $$;
 grant execute on function public.chain_set_note(text, bigint, text) to anon, authenticated;
 -- Optional: clear leaders_note in chain_set_active when p_active is false, like phase_*.
+
+-- (3d2) Buddy/dump queue mode ----------------------------------------------------------------------------------------
+-- In round mode a queue turn is a ROUND of up to round_size hits. The player at the front keeps their place until their
+-- round is done or they pass, then moves to the back. Normal mode (the default) is unchanged. Per-player progress lives on
+-- chain_queue so the existing queue select and Realtime deliver it ("your round: k/10").
+
+alter table public.chain_sessions
+  add column if not exists queue_mode text not null default 'normal' check (queue_mode in ('normal', 'round')),
+  add column if not exists round_size integer not null default 10 check (round_size between 1 and 25);
+alter table public.chain_queue
+  add column if not exists round_hits integer not null default 0;
+
+create or replace function public.chain_set_queue_mode(p_session text, p_player_id bigint, p_mode text, p_size integer)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) or p_mode not in ('normal', 'round') then return false; end if;
+  update chain_sessions set queue_mode = p_mode, round_size = least(greatest(coalesce(p_size, 10), 1), 25)
+   where session_id = p_session;
+  update chain_queue set round_hits = 0 where session_id = p_session;
+  return found;
+end $$;
+
+-- Called from inside the existing hit-recording function (chain_record_attack) where it now moves the hitter to the back.
+-- Returns true when the hitter should move to the back: always in normal mode; in round mode only once their round is
+-- full, and the count then resets for their next turn.
+create or replace function public.chain_round_should_rotate(p_session text, p_player_id bigint)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_mode text; v_size integer; v_hits integer;
+begin
+  select queue_mode, round_size into v_mode, v_size from chain_sessions where session_id = p_session;
+  if v_mode is distinct from 'round' then return true; end if;
+  update chain_queue set round_hits = round_hits + 1
+   where session_id = p_session and player_id = p_player_id returning round_hits into v_hits;
+  if v_hits is null then return true; end if;
+  if v_hits >= v_size then
+    update chain_queue set round_hits = 0 where session_id = p_session and player_id = p_player_id;
+    return true;
+  end if;
+  return false;
+end $$;
+-- In chain_record_attack, replace the unconditional "move the hitter to the back" with
+--   if chain_round_should_rotate(p_session, p_player_id) then <the existing move-to-back> end if;
+-- chain_signal_hit_v2 (the instant hit signal) needs the same wrapper if it also moves the queue.
+
+-- The player at the front ends their own round early and goes to the back.
+create or replace function public.chain_round_pass(p_session text, p_player_id bigint)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_front bigint;
+begin
+  select player_id into v_front from chain_queue where session_id = p_session order by position asc, joined_at asc limit 1;
+  if v_front is distinct from p_player_id
+     or (select queue_mode from chain_sessions where session_id = p_session) is distinct from 'round' then return false; end if;
+  update chain_queue
+     set position = (select coalesce(max(position), 0) + 1 from chain_queue where session_id = p_session), round_hits = 0
+   where session_id = p_session and player_id = p_player_id;
+  return found;
+end $$;
+
+grant execute on function public.chain_set_queue_mode(text, bigint, text, integer) to anon, authenticated;
+grant execute on function public.chain_round_pass(text, bigint) to anon, authenticated;
+revoke execute on function public.chain_round_should_rotate(text, bigint) from public, anon, authenticated;
+-- chain_round_should_rotate is called from other security definer functions only.
