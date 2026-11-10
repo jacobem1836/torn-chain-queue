@@ -82,3 +82,27 @@ begin
   return found;
 end $$;
 grant execute on function public.chain_claim_save(text, bigint, text, integer) to anon, authenticated;
+
+-- (d) Phase banner ------------------------------------------------------------------------------------------------
+-- Also on chain_sessions, for the same Realtime reason. Admin-only.
+
+alter table public.chain_sessions
+  add column if not exists phase_mode   text check (phase_mode in ('real', 'termed', 'turtle')),
+  add column if not exists phase_text   text check (char_length(phase_text) <= 80),
+  add column if not exists phase_set_by bigint,
+  add column if not exists phase_set_at timestamptz;
+
+create or replace function public.chain_set_phase(p_session text, p_player_id bigint, p_mode text, p_text text)
+returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not chain_is_admin(p_session, p_player_id) then return false; end if;
+  if p_mode is not null and p_mode not in ('real', 'termed', 'turtle') then return false; end if;
+  update chain_sessions
+     set phase_mode = p_mode, phase_text = nullif(left(trim(p_text), 80), ''), phase_set_by = p_player_id, phase_set_at = now()
+   where session_id = p_session;
+  return found;
+end $$;
+grant execute on function public.chain_set_phase(text, bigint, text, text) to anon, authenticated;
+
+-- Optional: in chain_set_active, clear phase_mode and phase_text when p_active is false, so the next session does not
+-- open with the last war's banner.
