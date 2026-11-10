@@ -5,7 +5,11 @@
 // tornchain=<n> (Torn reports a live faction chain of n),
 // auto=1 (a ranked war is live; also autooff=1 / autodone=1 for the setting off / this war already auto-started),
 // note=1 (a leaders' note is set; its text contains HTML to show it stays text),
+// mefirst=1 (the viewer is first in the queue: plays the "turn" sound at once and "urgent" about 28 s later),
 // round=1 (round mode, 10 hits a turn; the viewer is at the front with 4 hits done),
+// Several tabs (see tabs.html): tab=<i> shares localStorage with the other tabs and counts its own sounds and feed reads;
+// vis=hidden|visible|focus sets this tab's visibility; evt=1 changes the queue once at evtAt ms (default 2500), which
+// makes the script play its "hit" sound; mute=1 turns sounds off.
 // lead=1 (viewer is the chain leader), expand=<selectors> (open those <details>).
 (() => {
   const P = new URLSearchParams(location.search);
@@ -23,12 +27,24 @@
   window.getCurrentTimestamp = () => Date.now();
   // Web Locks never grant in headless virtual time; hiding them makes the script use its localStorage poll lease.
   try { Object.defineProperty(navigator, "locks", { value: undefined }); } catch (e) {}
-  window.GM_getValue = (k) => store[k];
-  window.GM_setValue = (k, v) => { store[k] = v; };
+  const TAB = P.get("tab");
+  const gmKey = (k) => "gm:" + k;
+  window.GM_getValue = (k) => store[k] ?? (TAB != null ? localStorage.getItem(gmKey(k)) ?? undefined : undefined);
+  window.GM_setValue = (k, v) => { store[k] = v; if (TAB != null) localStorage.setItem(gmKey(k), v); };
+  if (on("mute")) window.GM_setValue("chainQueue.sound", "0");
+  const count = (k) => localStorage.setItem(k, String((+localStorage.getItem(k) || 0) + 1));
+  if (TAB != null) {
+    // A fake audio context: every tone reads currentTime once, so reads are sounds played.
+    const node = () => ({ frequency: { set value(v) { localStorage.setItem("mock:freq:" + TAB, (localStorage.getItem("mock:freq:" + TAB) || "") + v + ","); } }, gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, start() {}, stop() {} });
+    window.AudioContext = function () { return { state: "running", resume() {}, get currentTime() { count("mock:snd:" + TAB); return 0; }, destination: {}, createOscillator: node, createGain: node }; };
+    const vis = P.get("vis") || "visible";
+    Object.defineProperty(document, "visibilityState", { get: () => (vis === "hidden" ? "hidden" : "visible") });
+    document.hasFocus = () => vis === "focus";
+  }
   window.GM_addValueChangeListener = () => {};
   window.confirm = () => true;
   window.alert = () => {};
-  localStorage.clear();
+  if (TAB == null) localStorage.clear();
   store["chainQueue.tornApiKey"] = "MOCKKEY000000000";
   if (on("feed")) { store["chainQueue.tcmFeed"] = "1"; store["chainQueue.tcmToken"] = on("badtoken") ? "revoked" : "mock-token"; }
   window.__mockStore = store;
@@ -54,7 +70,7 @@
         save_claim_until: claim ? new Date(Date.now() + 45000).toISOString() : null,
       }),
     },
-    queue: scenario === "idle" ? [] : (on("round") ? [ME.name, ...names.filter((n) => n !== ME.name)] : names).map((n, i) => ({
+    queue: scenario === "idle" ? [] : (on("round") || on("mefirst") ? [ME.name, ...names.filter((n) => n !== ME.name)] : names).map((n, i) => ({
       session_id: "sot-41259", player_id: idOf(n, i), player_name: n, position: i + 1,
       energy_current: [150, 75, 250, 1000, 25, null, 100][i], energy_max: 150, can_lead: true,
       ...(legacy ? {} : { round_hits: on("round") && n === ME.name ? 4 : 0 }),
@@ -122,6 +138,7 @@
     if (u.host === "torncitymanager.com") {
       if (u.pathname === "/api/script/link") return { token: "mock-token", player: { id: ME.id, name: ME.name, tier: "free" }, faction: { id: 41259, name: "Mock", tier: "free" } };
       if (u.pathname === "/api/chain/feed") {
+        if (TAB != null) count("mock:feed:" + TAB);
         if (on("feedfail")) return { __status: 503, error: "unavailable" };
         if (headers?.["x-tcm-token"] !== "mock-token") return { __status: 401, error: "relink" };
         // One hit newer than the leader's last Torn read: count + 1 and 9 s more on the timer.
@@ -151,11 +168,12 @@
     }, 20);
   };
   window.__mockDb = db;
+  if (on("evt")) setTimeout(() => db.queue.push(db.queue.shift()), +P.get("evtAt") || 2500);
   // For check.sh: mirror the fake backend's state into the DOM so --dump-dom can see it.
   setInterval(() => {
     if (!document.body) return;
     const { calls, ...rest } = db;
-    document.body.dataset.mock = JSON.stringify({ ...rest, store, rpcs: calls.filter((c) => c.includes("/rpc/")).map((c) => c.split("/rpc/")[1]) });
+    document.body.dataset.mock = JSON.stringify({ ...rest, store, queueReads: calls.filter((c) => c.endsWith("/chain_queue")).length, rpcs: calls.filter((c) => c.includes("/rpc/")).map((c) => c.split("/rpc/")[1]) });
   }, 200);
 
   if (on("open")) {

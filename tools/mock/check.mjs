@@ -7,10 +7,14 @@ const dump = (qs, ms = 4000) => execFileSync(CHROME, ["--headless=new", "--disab
   `http://127.0.0.1:8765/tools/mock/torn.html?${qs}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 const text = (html, cls) => (html.match(new RegExp(`class="${cls}(?: [^"]*)?"[^>]*>([^<]*)<`)) || [])[1] ?? null;
 const attr = (html, cls, a) => (html.match(new RegExp(`class="${cls}(?: [^"]*)?"[^>]*${a}="([^"]*)"`)) || [])[1] ?? null;
+// Several tabs: tabs.html opens n copies of the mock page that share localStorage; the totals land in data-tabs.
+const tabsDump = (qs, ms = 45000) => execFileSync(CHROME, ["--headless=new", "--disable-gpu", `--virtual-time-budget=${ms}`, "--dump-dom",
+  `http://127.0.0.1:8765/tools/mock/tabs.html?${qs}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+const tabs = (html) => JSON.parse((html.match(/data-tabs="([^"]*)"/) || [, "{}"])[1].replace(/&quot;/g, '"'));
 const mock = (html) => JSON.parse((html.match(/data-mock="([^"]*)"/) || [, "{}"])[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
 
 const cases = [];
-const check = (name, qs, fn, ms) => cases.push({ name, qs, fn, ms });
+const check = (name, qs, fn, ms, run = dump) => cases.push({ name, qs, fn, ms, run });
 
 check("timer state safe", "s=safe&open=1", (h) => attr(h, "hero", "data-state") === "safe" && text(h, "state") === "SAFE");
 check("timer state warn", "s=warn&open=1", (h) => attr(h, "hero", "data-state") === "warn" && text(h, "state") === "LOW");
@@ -83,10 +87,19 @@ check("round: size is held between 1 and 25", "s=safe&open=1&admin=1&fill=%23qmo
 check("round: non-admins get no mode control", "s=safe&open=1&round=1", (h) => /class="row roundctl" hidden/.test(h));
 check("round: old backend hides it all", "s=safe&open=1&legacy=1&round=1", (h) => /class="round" hidden/.test(h) && /class="row roundctl" hidden/.test(h));
 
+// Sounds in the mock with the viewer first in the queue: "turn" at start and "urgent" about 28 s in, so two per player.
+const T = "q=s%3Dsafe%26mefirst%3D1";
+check("tabs: three tabs play each sound once, not three times", `n=3&${T}`, (h) => tabs(h).total === 2, 45000, tabsDump);
+check("tabs: a single tab (TornPDA) still plays every sound at once", `n=1&${T}`, (h) => tabs(h).total === 2, 45000, tabsDump);
+check("tabs: a visible tab beats a hidden poller for sound", `n=3&${T}&vis0=hidden&vis1=visible&vis2=hidden`, (h) => tabs(h).total === 2 && tabs(h).sounds[1] === 1, 45000, tabsDump);
+check("tabs: closing the poller tab hands sound over to another tab", `n=3&${T}&close0=6000`, (h) => tabs(h).total === 2 && tabs(h).sounds[1] + tabs(h).sounds[2] === 1, 45000, tabsDump);
+check("tabs: muting in one tab mutes them all", `n=3&${T}&mute0=1`, (h) => tabs(h).total === 0, 45000, tabsDump);
+check("tabs: only the polling tab reads the TCM feed", "n=3&q=s%3Dsafe%26feed%3D1", (h) => tabs(h).feed[0] > 0 && tabs(h).feed[1] === 0 && tabs(h).feed[2] === 0, 9000, tabsDump);
+
 let failed = 0;
 for (const c of cases) {
   let ok = false;
-  try { ok = !!c.fn(dump(c.qs, c.ms)); } catch (e) { ok = false; }
+  try { ok = !!c.fn(c.run(c.qs, c.ms)); } catch (e) { ok = false; }
   if (!ok) failed++;
   console.log(`${ok ? "PASS" : "FAIL"}  ${c.name}`);
 }
